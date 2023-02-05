@@ -114,4 +114,5 @@ int main(void) {
   printf("a + b: %f\n", float12_to_float(float12_add(a, b)));
   printf("a - b: %f\n", float12_to_float(float12_sub(a, b)));
   printf("a * b: %f\n", float12_to_float(float12_mul(a, b)));
-  printf("a / b: %f\n", float12_to_float(float12_
+
+}
