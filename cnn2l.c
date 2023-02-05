@@ -1,167 +1,107 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
-#include <stdio.h>
 
-typedef struct {
-    unsigned short fraction: 6;
-    unsigned short exponent: 5;
-    unsigned short sign: 1;
+typedef union {
+  struct {
+    unsigned fraction:6;
+    unsigned exponent:5;
+    unsigned sign:1;
+  } parts;
+  unsigned short value;
 } float12;
 
-float12 add(float12 a, float12 b) {
-    float12 result;
-    unsigned short common_exponent = (a.exponent > b.exponent) ? a.exponent : b.exponent;
-    unsigned short fraction_a = a.fraction >> (a.exponent - common_exponent);
-    unsigned short fraction_b = b.fraction >> (b.exponent - common_exponent);
-    unsigned short sum = fraction_a + fraction_b;
-    if (sum & 0x400) {
-        result.fraction = (sum >> 1) & 0x3FF;
-        result.exponent = common_exponent + 1;
-    } else {
-        result.fraction = sum & 0x3FF;
-        result.exponent = common_exponent;
+// Convert a 32-bit float to a 12-bit float
+float12 float_to_float12(float f) {
+  float12 result;
+  result.parts.sign = (f < 0);
+  result.parts.exponent = (unsigned char)(fabs(f) / 2);
+  result.parts.fraction = (unsigned char)(fabs(f) * 64) & 63;
+  return result;
+}
+
+// Convert a 12-bit float to a 32-bit float
+float float12_to_float(float12 f12) {
+  return (f12.parts.sign ? -1 : 1) * (f12.parts.fraction / 64.0 + f12.parts.exponent * 2);
+}
+
+// Add two 12-bit floats
+float12 float12_add(float12 a, float12 b) {
+  return float_to_float12(float12_to_float(a) + float12_to_float(b));
+}
+
+// Subtract two 12-bit floats
+float12 float12_sub(float12 a, float12 b) {
+  return float_to_float12(float12_to_float(a) - float12_to_float(b));
+}
+
+// Multiply two 12-bit floats
+float12 float12_mul(float12 a, float12 b) {
+  return float_to_float12(float12_to_float(a) * float12_to_float(b));
+}
+
+// Divide two 12-bit floats
+float12 float12_div(float12 a, float12 b) {
+  return float_to_float12(float12_to_float(a) / float12_to_float(b));
+}
+
+// Convolutional Layer 1
+void conv_layer1(float12 input[], float12 weights[], float12 biases[], float12 output[], int input_size, int filter_size) {
+  int i, j, k, l;
+  float12 sum;
+
+  for (i = 0; i < input_size - filter_size + 1; i++) {
+    for (j = 0; j < input_size - filter_size + 1; j++) {
+      for (k = 0; k < filter_size; k++) {
+        for (l = 0; l < filter_size; l++) {
+          sum = float12_add(sum, float12_mul(input[(i+k)*input_size + (j+l)], weights[k*filter_size + l]));
+        }
+      }
+      output[i*(input_size-filter_size+1) + j] = float12_add(sum, biases[0]);
+      sum = float_to_float12(0.0);
     }
-    result.sign = (a.sign == b.sign) ? a.sign : (fraction_a + fraction_b >= 0x400);
-    return result;
-}
-float12 sub(float12 a, float12 b) {
-    b.sign = !b.sign;
-    return add(a, b);
-}
-float12 mul(float12 a, float12 b) {
-    float12 result;
-    unsigned long long product = (unsigned long long) a.fraction * b.fraction;
-    int shift = 0;
-    while (product & 0xFFC0000000000000ull) {
-        product >>= 1;
-        shift++;
-    }
-    result.fraction = product & 0x3FF;
-    result.exponent = a.exponent + b.exponent - shift;
-    result.sign = (a.sign == b.sign) ? 0 : 1;
-    return result;
-}
-float12 div(float12 a, float12 b) {
-    float12 result;
-    unsigned long long dividend = (unsigned long long) a.fraction << 10;
-    unsigned short divisor = b.fraction;
-    int shift = 0;
-    while (divisor & 0x400) {
-        divisor >>= 1;
-        shift++;
-    }
-    result.fraction = dividend / divisor;
-    result.exponent = a.exponent - b.exponent - shift;
-    result.sign = (a.sign == b.sign) ? 0 : 1;
-    return result;
-}
-#include <math.h>
-
-#define EXP_A (1048576 / log(2))
-#define EXP_C 60801
-
-float12 exp_f12(float12 x) {
-    float12 result;
-    int k = (int) ((x.fraction + x.exponent * EXP_A) * EXP_C);
-    result.fraction = ldexp(1, k & 1023);
-    result.exponent = k >> 10;
-    result.sign = 0;
-    return result;
+  }
 }
 
+// Convolutional Layer 2
+void conv_layer2 (float12 *input, float12 *output, float12 *weights, float12 *bias, int input_height, int input_width, int output_height, int output_width, int kernel_size, int stride, int padding) {
+int filter_height = kernel_size;
+int filter_width = kernel_size;
+int output_idx = 0;
+int filter_idx = 0;
+int input_idx = 0;
 
-int main() {
-    float12 a, b, c;
-    // Initialize a and b
-    // ...
-    c = add(a, b);
-    return 0;
+for (int out_y = 0; out_y < output_height; out_y++) {
+for (int out_x = 0; out_x < output_width; out_x++) {
+float12 result = {0};
+for (int filter_y = 0; filter_y < filter_height; filter_y++) {
+for (int filter_x = 0; filter_x < filter_width; filter_x++) {
+int in_y = out_y * stride + filter_y - padding;
+int in_x = out_x * stride + filter_x - padding;
+if (in_y >= 0 && in_y < input_height && in_x >= 0 && in_x < input_width) {
+input_idx = in_y * input_width + in_x;
+result = float12_add(result, float12_mul(weights[filter_idx], input[input_idx]));
 }
-#define layer1_nodes 5
-#define layer2_nodes 5
-
-#include <math.h>
-
-float12 double_to_float12(double value) {
-    float12 result;
-    result.fraction = value * 1024.0;
-    result.exponent = 0;
-    result.sign = (value < 0) ? 1 : 0;
-    return result;
+filter_idx++;
 }
-float12 float12_from_double(double v){
-return double_to_float12(v);
 }
-float12 sigmoid_f12(float12 x) {
-    double x_double = (double) x.fraction / 1024.0 + x.exponent;
-    double sigmoid_double = 1.0 / (1.0 + exp(-x_double));
-    return double_to_float12(sigmoid_double);
+output[output_idx++] = float12_add(result, bias[out_y * output_width + out_x]);
 }
-#include <nifti1_io.h>
-#include <stdio.h>
-
-int main1(int argc, char *argv[])
-{
-    nifti_image *nim;
-
-    if (argc < 2) {
-        printf("Usage: %s <input NIfTI file>\n", argv[0]);
-        return 1;
-    }
-
-    nim = nifti_image_read(argv[1], 1);
-    if (!nim) {
-        printf("Failed to read NIfTI file\n");
-        return 1;
-    }
-
-    // Do something with the NIfTI data
-
-    nifti_image_free(nim);
-    return 0;
+}
 }
 
-int main() {
-// Initialize weights and biases for layer 1
-float12  w1[layer1_nodes][layer2_nodes]= {{float12_from_double(0.1), float12_from_double(0.2), float12_from_double(0.3), float12_from_double(0.4), float12_from_double(0.5)},
-{float12_from_double(0.2), float12_from_double(0.3), float12_from_double(0.4), float12_from_double(0.5), float12_from_double(0.6)},
-{float12_from_double(0.3), float12_from_double(0.4), float12_from_double(0.5), float12_from_double(0.6), float12_from_double(0.7)},
-{float12_from_double(0.4), float12_from_double(0.5), float12_from_double(0.6), float12_from_double(0.7), float12_from_double(0.8)},
-{float12_from_double(0.5), float12_from_double(0.6), float12_from_double(0.7), float12_from_double(0.8), float12_from_double(0.9)}};
-}};
-
-double b1[layer1_nodes] = {float12_from_double(0.1), float12_from_double(0.2), float12_from_double(0.3), float12_from_double(0.4), float12_from_double(0.5)}
-
-// Initialize weights and biases for layer 2
-double w2[layer2_nodes] = {float12_from_double(0.1), float12_from_double(0.2), float12_from_double(0.3), float12_from_double(0.4), float12_from_double(0.5)};
-double b2 = 0.1;
-
-// Input layer with 5 nodes
-double input[layer1_nodes] = {float12_from_double(0.1), float12_from_double(0.2), float12_from_double(0.3), float12_from_double(0.4), float12_from_double(0.5)};
-
-// Output layer with 1 node
-double output = 0.0;
-
-// Layer 1 computations
-double layer1_output[layer1_nodes];
-for (int i = 0; i < layer1_nodes; i++) {
-    layer1_output[i] = 0.0;
-    for (int j = 0; j < layer2_nodes; j++) {
-        layer1_output[i] += w1[i][j] * input[j];
-    }
-    layer1_output[i] += b1[i];
-    layer1_output[i] = sigmoid(layer1_output[i]);
+void max_pooling_layer2(float12 *input, float12 *output, int input_height, int input_width, int output_height, int output_width, int kernel_size, int stride) {
+int output_idx = 0;
+for (int out_y = 0; out_y < output_height; out_y++) {
+for (int out_x = 0; out_x < output_width; out_x++) {
+float12 max_val = {0};
+for (int pool_y = 0; pool_y < kernel_size; pool_y++) {
+for (int pool_x = 0; pool_x < kernel_size; pool_x++) {
+int in_y = out_y * stride + pool_y;
+int in_x = out_x * stride + pool_x;
+int input_idx = in_y * input_width + in_x;
+max_val = (input[input_idx].value > max_val.value) ? input[input_idx] : max_val;
 }
-
-// Layer 2 computations
-for (int i = 0; i < layer2_nodes; i++) {
-    output += w2[i] * layer1_output[i];
 }
-output += b2;
-output = sigmoid(output);
-
-// Final output
-printf("Output: %lf\n", output);
-
-return 0;
+output[output_idx++] = max_val;
+}
+}
+}
