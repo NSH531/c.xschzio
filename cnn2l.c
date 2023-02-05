@@ -105,3 +105,45 @@ output[output_idx++] = max_val;
 }
 }
 }
+float12 pooling(float12 input[][2], int row, int col) {
+  float12 max = input[0][0];
+  for (int i = 0; i < row; i++) {
+    for (int j = 0; j < col; j++) {
+      if (input[i][j].value > max.value) {
+        max = input[i][j];
+      }
+    }
+  }
+  return max;
+}
+
+
+float12 tanh(float12 input) {
+  float x = (input.parts.sign ? -1 : 1) * (input.parts.fraction / 64.0 + input.parts.exponent * 2);
+  return float_to_float12(tanh(x));
+}
+
+// Convert a 32-bit float to a 12-bit float
+float12 float_to_float12(float f) {
+  float12 result;
+  result.parts.sign = (f < 0);
+  result.parts.exponent = (unsigned char)(fabs(f) / 2);
+  result.parts.fraction = (unsigned char)(fabs(f) * 64) & 63;
+  return result;
+}
+
+// Convert a 12-bit float to a 32-bit float
+float float12_to_float(float12 f12) {
+  return (f12.parts.sign ? -1 : 1) * (f12.parts.fraction / 64.0 + f12.parts.exponent * 2);
+}
+
+int main(void) {
+  float12 input[2][2] = { { float_to_float12(0.5), float_to_float12(-0.5) },
+                         { float_to_float12(-0.5), float_to_float12(0.5) } };
+  float12 pool = pooling(input, 2, 2);
+  float12 tanh_output = tanh(pool);
+  printf("Tanh output: %f\n", float12_to_float(tanh_output));
+  return 0;
+}
+
+
